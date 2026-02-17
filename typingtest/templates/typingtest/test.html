@@ -1,0 +1,382 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Тест — TypeRacer{% endblock %}
+
+{% block content %}
+<div class="grid gap-6">
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <div class="text-sm text-slate-400">Произведение</div>
+        <div class="text-lg font-semibold">
+          {{ passage.work.title }}{% if passage.work.author %} — {{ passage.work.author }}{% endif %}
+        </div>
+        <div class="text-xs text-slate-500 mt-1">
+          Язык: {{ passage.work.language }}{% if passage.work.source %} • Источник: {{ passage.work.source }}{% endif %}
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <div class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800">
+          <div class="text-xs text-slate-400">Осталось</div>
+          <div id="remaining" class="text-lg font-semibold">60s</div>
+        </div>
+        <div class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800">
+          <div class="text-xs text-slate-400">WPM</div>
+          <div id="wpm" class="text-lg font-semibold">0</div>
+        </div>
+        <div class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800">
+          <div class="text-xs text-slate-400">CPM</div>
+          <div id="cpm" class="text-lg font-semibold">0</div>
+        </div>
+        <div class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800">
+          <div class="text-xs text-slate-400">Точность</div>
+          <div id="acc" class="text-lg font-semibold">100%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div class="text-sm text-slate-400">
+        Таймер начнётся с первого ввода. Печатай текст ниже.
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="text-xs text-slate-500">Время:</div>
+        <select id="durationSelect" class="p-2 rounded-xl bg-slate-950 border border-slate-800 outline-none focus:border-slate-500 text-slate-200">
+          <option value="15">15s</option>
+          <option value="30">30s</option>
+          <option value="60" selected>60s</option>
+          <option value="120">120s</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mt-6">
+      <div class="text-sm text-slate-400 mb-2">Текст</div>
+      <div id="reference" class="p-4 rounded-xl bg-slate-950 border border-slate-800 leading-relaxed whitespace-pre-wrap break-words overflow-hidden"></div>
+    </div>
+
+    <div class="mt-6">
+      <div class="text-sm text-slate-400 mb-2">Печатай здесь</div>
+      <textarea id="input"
+        class="w-full min-h-[140px] p-4 rounded-xl bg-slate-950 border border-slate-800 outline-none focus:border-slate-500"
+        placeholder="Начни печатать — таймер стартует автоматически..."></textarea>
+
+      <div class="mt-3 flex flex-wrap gap-3">
+        <button id="restartSame" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800">Переписать этот текст</button>
+        <button id="restartNew" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800">Новый текст</button>
+        <button id="finish" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">Завершить</button>
+      </div>
+
+      <div id="result" class="mt-4"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const passageId = {{ passage.id }};
+  const referenceText = "{{ chunk|escapejs }}";
+  const chunkStart = {{ chunk_start }};
+
+  const refEl = document.getElementById("reference");
+  const inputEl = document.getElementById("input");
+
+  const remainingEl = document.getElementById("remaining");
+  const wpmEl = document.getElementById("wpm");
+  const cpmEl = document.getElementById("cpm");
+  const accEl = document.getElementById("acc");
+  const resultEl = document.getElementById("result");
+
+  const durationSelect = document.getElementById("durationSelect");
+
+  // Init duration from localStorage (default 60)
+  const savedDuration = localStorage.getItem("tt_duration") || "60";
+  if ([...durationSelect.options].some(o => o.value === savedDuration)) durationSelect.value = savedDuration;
+
+  // Make reference box monkeytype-ish
+  // (wrap, no horizontal overflow, smooth readability)
+  refEl.classList.add("break-words", "overflow-hidden", "select-none");
+
+  function escapeHtml(s) {
+    return s
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // --- State ---
+  let started = false;
+  let startTs = 0;
+  let timer = null;
+  let finished = false;
+
+  // Mistakes = number of wrong characters EVER typed (even if later fixed)
+  let mistakes = 0;
+
+  // Total typed characters EVER entered (only increments on insert, not decremented by backspace)
+  let totalTyped = 0;
+
+  // Backspace count (extra metric)
+  let backspaces = 0;
+
+  // Previous input value (to detect delta)
+  let prevValue = "";
+
+  let durationSec = parseInt(durationSelect.value, 10);
+  remainingEl.textContent = durationSec + "s";
+
+  function nowMs() { return performance.now(); }
+
+  // Monkeytype-like reveal window
+  const revealAhead = 45;
+  const hideBeyond = 140;
+
+  function computeAccuracy() {
+    if (totalTyped <= 0) return 100;
+    const acc = ((totalTyped - mistakes) / totalTyped) * 100;
+    return Math.max(0, Math.min(100, acc));
+  }
+
+  function render(typed) {
+    const maxLen = referenceText.length;
+    const caretPos = Math.min(typed.length, maxLen);
+
+    let html = "";
+    let correctNow = 0;
+
+    for (let i = 0; i < maxLen; i++) {
+      const refCh = referenceText[i];
+      const typedCh = i < typed.length ? typed[i] : null;
+
+      // Reveal window relative to caret
+      const dist = i - caretPos;
+      let futureClass = "";
+      if (dist > hideBeyond) futureClass = "opacity-0";
+      else if (dist > revealAhead) futureClass = "opacity-20";
+      else if (dist > 0) futureClass = "opacity-60";
+
+      // Insert caret BEFORE the current character
+      if (i === caretPos) {
+        html += `<span class="inline-block align-bottom w-0 border-l-2 border-slate-100/80 animate-pulse h-[1.25em] -ml-[1px]"></span>`;
+      }
+
+      const outCh = refCh === " " ? " " : escapeHtml(refCh);
+
+      if (typedCh === null) {
+        html += `<span class="text-slate-500 ${futureClass}">${outCh}</span>`;
+      } else if (typedCh === refCh) {
+        correctNow++;
+        html += `<span class="text-emerald-300">${outCh}</span>`;
+      } else {
+        html += `<span class="text-rose-300 underline decoration-rose-400/60">${outCh}</span>`;
+      }
+    }
+
+    // caret at end
+    if (caretPos === maxLen) {
+      html += `<span class="inline-block align-bottom w-0 border-l-2 border-slate-100/80 animate-pulse h-[1.25em] -ml-[1px]"></span>`;
+    }
+
+    refEl.innerHTML = html;
+
+    const elapsedMs = started ? (nowMs() - startTs) : 0;
+    const minutes = Math.max(elapsedMs / 60000, 1e-9);
+
+    // Monkeytype-like scoring:
+    // Use "effective correct keystrokes" that already penalizes mistakes even if fixed later.
+    const effectiveCorrect = Math.max(0, totalTyped - mistakes);
+    const cpm = effectiveCorrect / minutes;
+    const wpm = (effectiveCorrect / 5) / minutes;
+    const accuracy = computeAccuracy();
+
+    wpmEl.textContent = wpm.toFixed(0);
+    cpmEl.textContent = cpm.toFixed(0);
+    accEl.textContent = accuracy.toFixed(0) + "%";
+
+    return {
+      elapsedMs: Math.round(elapsedMs),
+      correctNow,
+      effectiveCorrect,
+      wpm,
+      cpm,
+      accuracy,
+    };
+  }
+
+  function updateRemaining() {
+    if (!started || finished) return;
+    const elapsed = (nowMs() - startTs) / 1000;
+    const left = Math.max(0, durationSec - elapsed);
+    remainingEl.textContent = left.toFixed(0) + "s";
+    if (left <= 0.01) finish(true);
+  }
+
+  function start() {
+    started = true;
+    startTs = nowMs();
+    timer = setInterval(() => {
+      render(inputEl.value);
+      updateRemaining();
+    }, 100);
+  }
+
+  // Duration selectable only before start
+  durationSelect.addEventListener("change", () => {
+    if (started) return;
+    durationSec = parseInt(durationSelect.value, 10);
+    remainingEl.textContent = durationSec + "s";
+    localStorage.setItem("tt_duration", durationSelect.value);
+  });
+
+  // No paste
+  inputEl.addEventListener("paste", (e) => e.preventDefault());
+
+  // Force caret to end (monkeytype-ish)
+  function forceCaretToEnd() {
+    const v = inputEl.value;
+    inputEl.selectionStart = v.length;
+    inputEl.selectionEnd = v.length;
+  }
+  inputEl.addEventListener("click", forceCaretToEnd);
+  inputEl.addEventListener("keyup", (e) => {
+    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End","PageUp","PageDown"].includes(e.key)) {
+      forceCaretToEnd();
+    }
+  });
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace") backspaces++;
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+
+  inputEl.addEventListener("input", () => {
+    if (finished) return;
+
+    forceCaretToEnd();
+
+    if (!started && inputEl.value.length > 0) {
+      durationSec = parseInt(durationSelect.value, 10);
+      remainingEl.textContent = durationSec + "s";
+      localStorage.setItem("tt_duration", durationSelect.value);
+      start();
+    }
+
+    const curr = inputEl.value;
+
+    // Count mistakes & totalTyped only on INSERTS (including multi-char IME commits)
+    if (curr.length > prevValue.length) {
+      const added = curr.slice(prevValue.length);
+      totalTyped += added.length;
+
+      for (let j = 0; j < added.length; j++) {
+        const pos = prevValue.length + j;
+        const typedCh = added[j];
+        const refCh = referenceText[pos] ?? "";
+        if (typedCh !== refCh) mistakes++;
+      }
+    }
+
+    // If user deletes, we do NOT reduce totalTyped/mistakes (mistakes are "in process")
+    prevValue = curr;
+
+    render(curr);
+    updateRemaining();
+
+    // Optionally finish if full text typed
+    if (curr.length >= referenceText.length) finish(false);
+  });
+
+  // Buttons
+  document.getElementById("restartSame").addEventListener("click", () => {
+    window.location.href = "{% url 'test' %}" + "?p=" + passageId + "&start=" + chunkStart;
+  });
+
+  document.getElementById("restartNew").addEventListener("click", () => {
+    window.location.href = "{% url 'test' %}";
+  });
+
+  function getCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]').getAttribute("content");
+  }
+
+  async function finish(fromTimer) {
+    if (finished) return;
+    finished = true;
+    if (timer) clearInterval(timer);
+    inputEl.disabled = true;
+
+    const typed = inputEl.value;
+    const stats = render(typed);
+
+    const durationMs = fromTimer ? Math.round(durationSec * 1000) : stats.elapsedMs;
+
+    // Accuracy based on "in-process" typing: totalTyped and mistakes
+    const accuracy = computeAccuracy();
+    const effectiveCorrect = Math.max(0, totalTyped - mistakes);
+
+    const payload = {
+      passage_id: passageId,
+      duration_ms: durationMs,
+      // We store *totalTyped* so results reflect in-process behavior
+      typed_chars: totalTyped,
+      correct_chars: effectiveCorrect,
+      errors: mistakes,
+      wpm: stats.wpm,
+      cpm: stats.cpm,
+      accuracy: accuracy
+    };
+
+    const res = await fetch("{% url 'submit_result' %}", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCsrfToken()
+      },
+      body: JSON.stringify(payload)
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+
+    const endedText = fromTimer ? "Время вышло ⏱️" : "Тест завершён ✅";
+
+    if (data && data.ok) {
+      resultEl.innerHTML = `
+        <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+          <div class="text-lg font-semibold">${endedText}</div>
+          <div class="mt-1 text-slate-300">
+            ${stats.wpm.toFixed(1)} WPM • ${stats.cpm.toFixed(0)} CPM • ${accuracy.toFixed(1)}% точность • ${mistakes} ошибок (в процессе) • ${backspaces} backspace
+          </div>
+          <div class="mt-3 flex flex-wrap gap-3">
+            <button onclick="document.getElementById('restartSame').click()" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800">Переписать этот текст</button>
+            <button onclick="document.getElementById('restartNew').click()" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800">Новый текст</button>
+            <a class="underline text-slate-200 px-2 py-2" href="{% url 'leaderboard' %}">Лидерборд →</a>
+            {% if user.is_authenticated %}
+              <a class="underline text-slate-200 px-2 py-2" href="{% url 'profile' %}">Профиль →</a>
+            {% else %}
+              <a class="underline text-slate-200 px-2 py-2" href="{% url 'signup' %}">Создать аккаунт →</a>
+            {% endif %}
+          </div>
+        </div>
+      `;
+    } else {
+      resultEl.innerHTML = `
+        <div class="p-4 rounded-xl bg-slate-950 border border-rose-900/50">
+          <div class="text-lg font-semibold text-rose-200">Не удалось сохранить результат</div>
+          <div class="mt-1 text-slate-300">Попробуй обновить страницу и повторить.</div>
+        </div>
+      `;
+    }
+  }
+
+  document.getElementById("finish").addEventListener("click", () => finish(false));
+
+  // Initial render with caret at start
+  render("");
+</script>
+{% endblock %}

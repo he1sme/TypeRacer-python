@@ -1,0 +1,65 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Профиль — TypeRacer{% endblock %}
+
+{% block content %}
+<div class="grid gap-6">
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 class="text-2xl font-semibold">Профиль: {{ user.username }}</h2>
+        <div class="text-slate-400 text-sm">Твоя статистика и последние результаты</div>
+      </div>
+      <a href="{% url 'test' %}" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">Новый тест</a>
+    </div>
+
+    <div class="mt-6 grid gap-4 md:grid-cols-4">
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">Всего тестов</div>
+        <div class="text-2xl font-semibold mt-1">{{ stats.total|default:0 }}</div>
+      </div>
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">Лучший WPM</div>
+        <div class="text-2xl font-semibold mt-1">{{ stats.best_wpm|default_if_none:"—"|floatformat:1 }}</div>
+      </div>
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">Средний WPM</div>
+        <div class="text-2xl font-semibold mt-1">{{ stats.avg_wpm|default_if_none:"—"|floatformat:1 }}</div>
+      </div>
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="text-xs text-slate-400">Средняя точность</div>
+        <div class="text-2xl font-semibold mt-1">{{ stats.avg_acc|default_if_none:"—"|floatformat:1 }}%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <h3 class="text-xl font-semibold">Последние результаты</h3>
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="text-slate-400">
+          <tr class="[&>th]:py-2 [&>th]:border-b [&>th]:border-slate-800">
+            <th>WPM</th>
+            <th>CPM</th>
+            <th>Точность</th>
+            <th>Ошибки</th>
+            <th>Когда</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in recent %}
+          <tr class="[&>td]:py-2 [&>td]:border-b [&>td]:border-slate-800">
+            <td class="font-semibold">{{ r.wpm|floatformat:1 }}</td>
+            <td>{{ r.cpm|floatformat:0 }}</td>
+            <td>{{ r.accuracy|floatformat:1 }}%</td>
+            <td>{{ r.errors }}</td>
+            <td class="text-slate-400">{{ r.created_at }}</td>
+          </tr>
+          {% empty %}
+          <tr><td class="py-4 text-slate-400" colspan="5">Пока нет результатов. Сделай первый тест!</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

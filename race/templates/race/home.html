@@ -1,0 +1,54 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Клавогонки{% endblock %}
+
+{% block content %}
+<div class="grid gap-6">
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="text-2xl font-semibold">Клавогонки</div>
+        <div class="mt-1 text-slate-400 text-sm">
+          Создай комнату и пригласи друзей. Гонка стартует автоматически, когда все будут готовы (минимум 2 игрока).
+        </div>
+      </div>
+      <div class="text-sm text-slate-400">
+        Длина текста: <span class="text-slate-200 font-medium">60 слов</span>
+      </div>
+    </div>
+
+    <form method="post" class="mt-5 flex flex-wrap items-center gap-3">
+      {% csrf_token %}
+      {% if participant.is_guest %}
+        <input name="guest_name" value="{{ participant.name }}" maxlength="20"
+               class="p-2 rounded-xl bg-slate-950 border border-slate-800 outline-none focus:border-slate-500"
+               placeholder="Ник (гость)">
+      {% endif %}
+      <button class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">
+        Создать комнату
+      </button>
+    </form>
+  </div>
+
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="text-lg font-semibold">Последние комнаты</div>
+    <div class="mt-4 grid gap-3">
+      {% for r in rooms %}
+        <a href="{% url 'race_room' r.code %}"
+           class="p-4 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-600 transition">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-medium">Комната {{ r.code }}</div>
+            <div class="text-sm text-slate-400">
+              {% if r.passage and r.passage.work %}{{ r.passage.work.title }}{% else %}Текст{% endif %}
+            </div>
+          </div>
+          <div class="mt-1 text-sm text-slate-500">
+            {% if r.passage and r.passage.work %}{{ r.passage.work.author }}{% endif %}
+          </div>
+        </a>
+      {% empty %}
+        <div class="text-slate-400 text-sm">Пока нет комнат. Создай первую 🙂</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

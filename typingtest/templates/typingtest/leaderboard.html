@@ -1,0 +1,49 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Лидерборд — TypeRacer{% endblock %}
+
+{% block content %}
+<div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+  <div class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h2 class="text-2xl font-semibold">Лидерборд</h2>
+      <div class="text-slate-400 text-sm">
+        Результатов: {{ avg.total|default_if_none:"0" }} • Среднее: {{ avg.avg_wpm|default_if_none:"—"|floatformat:1 }} WPM • {{ avg.avg_acc|default_if_none:"—"|floatformat:1 }}%
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="?mode=all" class="px-3 py-2 rounded-xl border border-slate-800 hover:bg-slate-800 {% if mode == 'all' %}bg-slate-800{% endif %}">All-time</a>
+      <a href="?mode=week" class="px-3 py-2 rounded-xl border border-slate-800 hover:bg-slate-800 {% if mode == 'week' %}bg-slate-800{% endif %}">7 дней</a>
+      <a href="{% url 'test' %}" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">Новый тест</a>
+    </div>
+  </div>
+
+  <div class="mt-6 overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead class="text-slate-400">
+        <tr class="[&>th]:py-2 [&>th]:border-b [&>th]:border-slate-800">
+          <th>Пользователь</th>
+          <th>WPM</th>
+          <th>CPM</th>
+          <th>Точность</th>
+          <th>Ошибки</th>
+          <th>Когда</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in top %}
+        <tr class="[&>td]:py-2 [&>td]:border-b [&>td]:border-slate-800">
+          <td class="text-slate-200">{% if r.user %}{{ r.user.username }}{% else %}Anon{% endif %}</td>
+          <td class="font-semibold">{{ r.wpm|floatformat:1 }}</td>
+          <td>{{ r.cpm|floatformat:0 }}</td>
+          <td>{{ r.accuracy|floatformat:1 }}%</td>
+          <td>{{ r.errors }}</td>
+          <td class="text-slate-400">{{ r.created_at }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="py-4 text-slate-400" colspan="6">Пока нет результатов.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

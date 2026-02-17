@@ -1,0 +1,11 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Клавогонки — пусто{% endblock %}
+{% block content %}
+<div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+  <div class="text-lg font-semibold">Текстов пока нет</div>
+  <div class="mt-2 text-slate-400">Импортируй хотя бы одно произведение, потом вернись сюда.</div>
+  <div class="mt-4">
+    <a class="underline" href="{% url 'test' %}">Перейти в тест →</a>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Нет текстов — TypeRacer{% endblock %}
+{% block content %}
+<div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+  <h2 class="text-2xl font-semibold">Пока нет текстов 😅</h2>
+  <p class="mt-2 text-slate-300">Добавь произведения и пассажи в админке или импортируй из .txt.</p>
+  <div class="mt-4 flex flex-wrap gap-3">
+    <a class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90" href="/admin/">
+      Открыть админку
+    </a>
+    <a class="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800" href="{% url 'home' %}">
+      На главную
+    </a>
+  </div>
+</div>
+{% endblock %}

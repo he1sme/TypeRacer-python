@@ -1,0 +1,53 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Главная — TypeRacer{% endblock %}
+
+{% block content %}
+<div class="grid gap-6 md:grid-cols-2">
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <h1 class="text-3xl font-semibold tracking-tight">Проверь скорость печати</h1>
+    <div class="mt-6 flex flex-wrap gap-3">
+      <a href="{% url 'test' %}" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">
+        Начать тест
+      </a>
+      <a href="{% url 'leaderboard' %}" class="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800">
+        Лидерборд
+      </a>
+      {% if user.is_authenticated %}
+      <a href="{% url 'profile' %}" class="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800">
+        Профиль
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="grid gap-4">
+      <div>
+        <div class="text-sm text-slate-400">Произведений</div>
+        <div class="mt-1 text-3xl font-semibold">{{ total_works }}</div>
+      </div>
+      <div>
+        <div class="text-sm text-slate-400">Пассажей</div>
+        <div class="mt-1 text-3xl font-semibold">{{ total_passages }}</div>
+      </div>
+      <div>
+        <div class="text-sm text-slate-400">Результатов</div>
+        <div class="mt-1 text-3xl font-semibold">{{ total_results }}</div>
+      </div>
+      <div class="text-sm text-slate-400">
+        
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if user.is_staff %}<div class="mt-10 p-6 rounded-2xl bg-slate-900 border border-slate-800">
+  <h2 class="text-xl font-semibold">Как наполнить базу текстами</h2>
+  <ol class="mt-3 list-decimal ml-5 text-slate-300 space-y-2">
+    <li>Скачай легальный public domain .txt (Wikisource / Project Gutenberg и т.д.).</li>
+    <li>Импортируй командой <code class="text-slate-200">python manage.py import_txt ...</code>.</li>
+    <li>Либо добавляй вручную в админке (Work + Passage).</li>
+  </ol>
+</div>
+{% endif %}
+{% endblock %}

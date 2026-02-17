@@ -1,0 +1,31 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Регистрация — TypeRacer{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto p-6 rounded-2xl bg-slate-900 border border-slate-800">
+  <h2 class="text-2xl font-semibold">Регистрация</h2>
+  <form method="post" class="mt-4 space-y-3">
+    {% csrf_token %}
+    <div>
+      <label class="text-sm text-slate-400">Username</label>
+      {{ form.username }}
+      {% for e in form.username.errors %}<div class="text-rose-200 text-xs mt-1">{{ e }}</div>{% endfor %}
+    </div>
+    <div>
+      <label class="text-sm text-slate-400">Password</label>
+      {{ form.password1 }}
+      {% for e in form.password1.errors %}<div class="text-rose-200 text-xs mt-1">{{ e }}</div>{% endfor %}
+    </div>
+    <div>
+      <label class="text-sm text-slate-400">Repeat password</label>
+      {{ form.password2 }}
+      {% for e in form.password2.errors %}<div class="text-rose-200 text-xs mt-1">{{ e }}</div>{% endfor %}
+    </div>
+    <button class="w-full px-4 py-3 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90" type="submit">
+      Создать аккаунт
+    </button>
+  </form>
+  <div class="mt-4 text-sm text-slate-400">
+    Уже есть аккаунт? <a class="underline text-slate-200" href="{% url 'login' %}">Войти</a>
+  </div>
+</div>
+{% endblock %}

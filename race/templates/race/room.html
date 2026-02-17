@@ -1,0 +1,342 @@
+{% extends "typingtest/base.html" %}
+{% block title %}Комната {{ room.code }} — Клавогонки{% endblock %}
+
+{% block content %}
+<div class="grid gap-6">
+  <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <div class="text-sm text-slate-400">Комната</div>
+        <div class="text-2xl font-semibold">{{ room.code }}</div>
+        <div class="text-xs text-slate-500 mt-1">
+          {{ room.passage.work.title }}{% if room.passage.work.author %} — {{ room.passage.work.author }}{% endif %} • 60 слов
+        </div>
+        <div class="text-sm text-slate-400">Ты: <span class="font-semibold">{{ participant.name }}</span>{% if participant.is_guest %} (гость){% endif %}</div>
+        <a class="underline text-slate-200" href="{% url 'race_home' %}">← К списку</a>
+      </div>
+    </div>
+
+    <div class="mt-6 grid gap-4">
+      <div class="text-sm text-slate-400">Игроки</div>
+      <div id="players" class="grid gap-2"></div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <button id="readyBtn" class="px-4 py-2 rounded-xl border border-slate-700 hover:bg-slate-800">Готов</button>
+        <button id="startBtn" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:opacity-90">Ждём второго игрока…</button>
+      </div>
+      <div class="text-sm text-slate-400">
+        Осталось: — <span id="remaining" class="font-semibold">—</span>
+      </div>
+      <div class="text-sm text-slate-400">
+        WPM: <span id="wpm" class="font-semibold">0</span> •
+        Точность: <span id="acc" class="font-semibold">100%</span> •
+        Ошибки: <span id="err" class="font-semibold">0</span>
+      </div>
+    </div>
+
+    <div class="mt-6">
+      <div class="text-sm text-slate-400 mb-2">Текст</div>
+      <div id="reference" class="p-4 rounded-xl bg-slate-950 border border-slate-800 leading-relaxed break-words overflow-hidden select-none"></div>
+    </div>
+
+    <div class="mt-6">
+      <div class="text-sm text-slate-400 mb-2">Печатай здесь</div>
+      <textarea id="input"
+        class="w-full min-h-[140px] p-4 rounded-xl bg-slate-950 border border-slate-800 outline-none focus:border-slate-500"
+        placeholder="Нажми «Готов». Гонка начнётся автоматически, когда все будут готовы." disabled></textarea>
+      <div id="result" class="mt-4"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const roomCode = "{{ room.code|escapejs }}";
+  const durationSec = null;
+  const referenceText = "{{ room.chunk_text|escapejs }}";
+
+  const playersEl = document.getElementById("players");
+  const refEl = document.getElementById("reference");
+  const inputEl = document.getElementById("input");
+
+  const remainingEl = document.getElementById("remaining");
+  const wpmEl = document.getElementById("wpm");
+  const accEl = document.getElementById("acc");
+  const errEl = document.getElementById("err");
+  const resultEl = document.getElementById("result");
+
+  refEl.textContent = referenceText;
+
+  const wsScheme = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${wsScheme}://${location.host}/ws/race/${roomCode}/`);
+
+  let started = false;
+  let startMs = null;
+  let timerInt = null;
+  let finished = false;
+
+  // in-process metrics
+  let mistakes = 0;
+  let totalTyped = 0;
+  let prevValue = "";
+
+  function nowMs(){ return Date.now(); }
+
+  function escapeHtml(s) {
+    return s
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  const revealAhead = 45;
+  const hideBeyond = 140;
+
+  function computeAccuracy() {
+    if (totalTyped <= 0) return 100;
+    const acc = ((totalTyped - mistakes) / totalTyped) * 100;
+    return Math.max(0, Math.min(100, acc));
+  }
+
+  function render(typed) {
+    const maxLen = referenceText.length;
+    const caretPos = Math.min(typed.length, maxLen);
+
+    let html = "";
+    for (let i = 0; i < maxLen; i++) {
+      const refCh = referenceText[i];
+      const typedCh = i < typed.length ? typed[i] : null;
+
+      const dist = i - caretPos;
+      let futureClass = "";
+      if (dist > hideBeyond) futureClass = "opacity-0";
+      else if (dist > revealAhead) futureClass = "opacity-20";
+      else if (dist > 0) futureClass = "opacity-60";
+
+      if (i === caretPos) {
+        html += `<span class="inline-block align-bottom w-0 border-l-2 border-slate-100/80 animate-pulse h-[1.25em] -ml-[1px]"></span>`;
+      }
+
+      const outCh = refCh === " " ? " " : escapeHtml(refCh);
+
+      if (typedCh === null) {
+        html += `<span class="text-slate-500 ${futureClass}">${outCh}</span>`;
+      } else if (typedCh === refCh) {
+        html += `<span class="text-emerald-300">${outCh}</span>`;
+      } else {
+        html += `<span class="text-rose-300 underline decoration-rose-400/60">${outCh}</span>`;
+      }
+    }
+    if (caretPos === maxLen) {
+      html += `<span class="inline-block align-bottom w-0 border-l-2 border-slate-100/80 animate-pulse h-[1.25em] -ml-[1px]"></span>`;
+    }
+    refEl.innerHTML = html;
+  }
+
+  function updateStatsUi(elapsedMs) {
+    const minutes = Math.max(elapsedMs / 60000, 1e-9);
+    const effectiveCorrect = Math.max(0, totalTyped - mistakes);
+    const wpm = (effectiveCorrect / 5) / minutes;
+    const acc = computeAccuracy();
+    wpmEl.textContent = wpm.toFixed(0);
+    accEl.textContent = acc.toFixed(0) + "%";
+    errEl.textContent = String(mistakes);
+    return {wpm, acc, effectiveCorrect};
+  }
+
+  function tick() {
+  if (!started || finished) return;
+  const elapsed = nowMs() - startMs;
+  // No timer in race-to-end mode; just update stats UI
+  updateStatsUi(elapsed);
+}
+
+function send(type, payload={}) {
+    socket.send(JSON.stringify({type, ...payload}));
+  }
+
+  function renderPlayers(statePlayers) {
+  const entries = Object.entries(statePlayers || {});
+  entries.sort((a,b)=> (b[1].progress||0) - (a[1].progress||0));
+
+  // "Race track": each player has a lane with a moving car marker.
+  playersEl.innerHTML = entries.map(([pid, p]) => {
+    const pr = Math.round((p.progress||0) * 100);
+    const name = escapeHtml(p.name || "Player");
+    const ready = p.ready ? "✅" : "⏳";
+    const fin = p.finished ? "🏁" : "";
+    const wpm = Number(p.wpm||0).toFixed(0);
+    const acc = Number(p.accuracy||100).toFixed(0);
+    const errors = p.errors||0;
+
+    return `
+      <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="flex items-center justify-between gap-3">
+          <div class="font-semibold">${name} <span class="text-slate-500 text-sm">${ready} ${fin}</span></div>
+          <div class="text-slate-300 text-sm">${pr}%</div>
+        </div>
+
+        <div class="mt-3 relative h-10 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden">
+          <!-- Finish line -->
+          <div class="absolute top-0 right-6 w-[2px] h-full bg-slate-200/40"></div>
+
+          <!-- Track stripes -->
+          <div class="absolute inset-0 opacity-30"
+            style="background-image: linear-gradient(to right, rgba(148,163,184,.25) 1px, transparent 1px);
+                   background-size: 40px 40px;"></div>
+
+          <!-- Car marker -->
+          <div class="absolute top-1/2 -translate-y-1/2 transition-all duration-150 ease-linear"
+               style="left: ${pr}%; transform: translate(-50%, -50%);">
+            <div class="px-2 py-1 rounded-full bg-slate-200 text-slate-900 text-sm font-semibold shadow">
+              🚗
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-2 text-xs text-slate-500">
+          ${wpm} WPM • ${acc}% • ${errors} ошибок
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+  socket.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data || "{}");
+    if (msg.type !== "state") return;
+
+    renderPlayers(msg.players);
+
+    // Hide Start button as soon as there are 2+ players (auto-start mode)
+    const startBtn = document.getElementById('startBtn');
+    const pCount = Object.keys(msg.players || {}).length;
+    if (pCount >= 2) {
+      startBtn.style.display = 'none';
+    } else {
+      startBtn.style.display = '';
+    }
+
+    if (msg.started && !started) {
+      // start synced by server start_ms
+      started = true;
+      startMs = msg.start_ms || nowMs();
+      inputEl.disabled = false;
+      inputEl.placeholder = "Печатай!";
+      inputEl.focus();
+      render(inputEl.value);
+      if (!timerInt) timerInt = setInterval(tick, 100);
+    }
+    if (!msg.started && !started) {
+      remainingEl.textContent = "—";
+    }
+  };
+
+  socket.onopen = () => {
+    // nothing
+  };
+
+  socket.onerror = () => {
+    resultEl.innerHTML = `<div class="p-4 rounded-xl bg-slate-950 border border-rose-900/50">
+      <div class="text-rose-200 font-semibold">Нет соединения</div>
+      <div class="text-slate-300 mt-1">Проверь подключение к сети и обнови страницу.</div>
+    </div>`;
+  };
+
+  // UI buttons
+  let ready = false;
+  document.getElementById("readyBtn").addEventListener("click", () => {
+    ready = !ready;
+    send("ready", {ready});
+    document.getElementById("readyBtn").textContent = ready ? "Не готов" : "Готов";
+  });
+
+  
+  // typing
+  function forceCaretToEnd() {
+    const v = inputEl.value;
+    inputEl.selectionStart = v.length;
+    inputEl.selectionEnd = v.length;
+  }
+  inputEl.addEventListener("click", forceCaretToEnd);
+
+  inputEl.addEventListener("paste", (e) => e.preventDefault());
+
+  inputEl.addEventListener("input", () => {
+    if (!started || finished) return;
+
+    forceCaretToEnd();
+
+    const curr = inputEl.value;
+
+    if (curr.length > prevValue.length) {
+      const added = curr.slice(prevValue.length);
+      totalTyped += added.length;
+      for (let j = 0; j < added.length; j++) {
+        const pos = prevValue.length + j;
+        const typedCh = added[j];
+        const refCh = referenceText[pos] ?? "";
+        if (typedCh !== refCh) mistakes++;
+      }
+    }
+
+    prevValue = curr;
+
+    const elapsed = nowMs() - startMs;
+    const stats = updateStatsUi(elapsed);
+
+    // progress based on current length vs reference
+    const progress = Math.max(0, Math.min(1, curr.length / referenceText.length));
+    send("progress", {progress, wpm: stats.wpm, accuracy: stats.acc, errors: mistakes});
+
+    render(curr);
+
+    if (curr.length >= referenceText.length) {
+      finish();
+    }
+  });
+
+  async function finish() {
+    if (finished) return;
+    finished = true;
+    inputEl.disabled = true;
+    if (timerInt) clearInterval(timerInt);
+
+    const elapsed = Math.max(0, nowMs() - startMs);
+    const minutes = Math.max(elapsed / 60000, 1e-9);
+    const effectiveCorrect = Math.max(0, totalTyped - mistakes);
+    const cpm = effectiveCorrect / minutes;
+    const wpm = (effectiveCorrect / 5) / minutes;
+    const accuracy = computeAccuracy();
+
+    send("finish", {
+      duration_ms: elapsed,
+      typed_chars: totalTyped,
+      correct_chars: effectiveCorrect,
+      errors: mistakes,
+      wpm: wpm,
+      cpm: cpm,
+      accuracy: accuracy
+    });
+
+    resultEl.innerHTML = `
+      <div class="p-4 rounded-xl bg-slate-950 border border-slate-800">
+        <div class="text-lg font-semibold">${fromTimer ? "Время вышло ⏱️" : "Финиш 🏁"}</div>
+        <div class="mt-1 text-slate-300">
+          ${wpm.toFixed(1)} WPM • ${accuracy.toFixed(1)}% • ${mistakes} ошибок (в процессе)
+        </div>
+        <div class="mt-3 text-slate-500 text-sm">
+          Результат сохраняется в профиль только для аккаунтов. Гостям — только на экране.
+        </div>
+      </div>
+    `;
+  }
+
+  // initial render caret
+  render("");
+  remainingEl.textContent = "—";
+</script>
+{% endblock %}
